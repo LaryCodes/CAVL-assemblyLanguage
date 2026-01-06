@@ -1,0 +1,4 @@
+# file: D:\CAVL\backend\app\services\mars_executor.py
+# hypothesis_version: 6.148.9
+
+[2.0, '-jar', '.asm', '.data', '.dump', 'Error', 'HexText', 'Warning', 'a0', 'a1', 'a2', 'a3', 'at', 'dec', 'dump', 'error', 'fp', 'gp', 'java', 'k0', 'k1', 'mars.jar', 'nc', 'r', 'ra', 's0', 's1', 's2', 's3', 's4', 's5', 's6', 's7', 'sp', 't0', 't1', 't2', 't3', 't4', 't5', 't6', 't7', 't8', 't9', 'utf-8', 'v0', 'v1', 'w', 'zero']

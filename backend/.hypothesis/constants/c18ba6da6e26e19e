@@ -1,0 +1,4 @@
+# file: D:\CAVL\backend\app\services\asm_injector.py
+# hypothesis_version: 6.148.9
+
+['allocate', 'core', 'free', 'free_address', 'heap_operations.asm', 'init', 'mips', 'operation_type', 'requested_size', 'utf-8']

@@ -1,0 +1,4 @@
+# file: D:\CAVL\backend\app\services\trace_parser.py
+# hypothesis_version: 6.148.9
+
+[0.0, 1024, 4194304, 268500992, 268697600, 2147479548, '$zero', '0x([0-9a-fA-F]+)', '\\$(\\w+)\\s+(-?\\d+)']

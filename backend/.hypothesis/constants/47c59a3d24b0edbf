@@ -1,0 +1,4 @@
+# file: D:\CAVL\backend\app\main.py
+# hypothesis_version: 6.148.9
+
+['*', '/', '/health', '1.0.0', 'CAVL Backend', 'cavl-backend', 'healthy', 'message', 'ok', 'service', 'status', 'version']

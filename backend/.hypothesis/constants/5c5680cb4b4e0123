@@ -1,0 +1,4 @@
+# file: D:\CAVL\backend\app\services\output_parser.py
+# hypothesis_version: 6.148.9
+
+[0.0, 100.0, 268500992, 268697600, '0x', '\\$(\\w+)\\s+(-?\\d+)', '^([0-9a-fA-F]+)$']

@@ -1,0 +1,4 @@
+# file: D:\CAVL\backend\app\models\schemas.py
+# hypothesis_version: 6.148.9
+
+[0.0, 100, '$a0', '$a1', '$a2', '$a3', '$at', '$fp', '$gp', '$k0', '$k1', '$ra', '$s0', '$s1', '$s2', '$s3', '$s4', '$s5', '$s6', '$s7', '$sp', '$t0', '$t1', '$t2', '$t3', '$t4', '$t5', '$t6', '$t7', '$t8', '$t9', '$v0', '$v1', '$zero', 'Current heap state', 'Current memory state', 'Memory address', 'Memory content value', 'RegisterState', 'Stack segment', 'Updated heap state', '^(full|step)$', 'step']
