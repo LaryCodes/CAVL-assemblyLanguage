@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 
 export type ToastType = "error" | "success" | "warning" | "info";
 
@@ -40,67 +41,110 @@ const TOAST_ICONS: Record<ToastType, React.ReactNode> = {
   ),
 };
 
-const TOAST_STYLES: Record<ToastType, string> = {
-  error: "bg-red-900 border-red-700 text-red-100",
-  success: "bg-green-900 border-green-700 text-green-100",
-  warning: "bg-yellow-900 border-yellow-700 text-yellow-100",
-  info: "bg-blue-900 border-blue-700 text-blue-100",
+const TOAST_GRADIENTS: Record<ToastType, string> = {
+  error: "from-red-500/20 via-red-600/10 to-transparent",
+  success: "from-emerald-500/20 via-emerald-600/10 to-transparent",
+  warning: "from-amber-500/20 via-amber-600/10 to-transparent",
+  info: "from-cyan-500/20 via-cyan-600/10 to-transparent",
 };
 
-const TOAST_ICON_STYLES: Record<ToastType, string> = {
+const TOAST_BORDER_COLORS: Record<ToastType, string> = {
+  error: "border-l-red-500",
+  success: "border-l-emerald-500",
+  warning: "border-l-amber-500",
+  info: "border-l-cyan-500",
+};
+
+const TOAST_GLOW: Record<ToastType, string> = {
+  error: "shadow-red-500/20",
+  success: "shadow-emerald-500/20",
+  warning: "shadow-amber-500/20",
+  info: "shadow-cyan-500/20",
+};
+
+const TOAST_ICON_COLORS: Record<ToastType, string> = {
   error: "text-red-400",
-  success: "text-green-400",
-  warning: "text-yellow-400",
-  info: "text-blue-400",
+  success: "text-emerald-400",
+  warning: "text-amber-400",
+  info: "text-cyan-400",
 };
 
 function Toast({ toast, onDismiss }: ToastProps) {
-  const [isExiting, setIsExiting] = useState(false);
-
   useEffect(() => {
     if (toast.duration && toast.duration > 0) {
       const timer = setTimeout(() => {
-        setIsExiting(true);
-        setTimeout(() => onDismiss(toast.id), 300);
+        onDismiss(toast.id);
       }, toast.duration);
       return () => clearTimeout(timer);
     }
   }, [toast.id, toast.duration, onDismiss]);
 
   const handleDismiss = () => {
-    setIsExiting(true);
-    setTimeout(() => onDismiss(toast.id), 300);
+    onDismiss(toast.id);
   };
 
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, x: 100, scale: 0.8 }}
+      animate={{ opacity: 1, x: 0, scale: 1 }}
+      exit={{ opacity: 0, x: 100, scale: 0.8 }}
+      transition={{ type: "spring", damping: 20, stiffness: 300 }}
       className={`
-        ${TOAST_STYLES[toast.type]}
-        border rounded-lg shadow-lg p-4 max-w-md
-        transform transition-all duration-300 ease-in-out
-        ${isExiting ? "opacity-0 translate-x-full" : "opacity-100 translate-x-0"}
+        relative overflow-hidden
+        bg-slate-900/90 backdrop-blur-xl
+        border border-white/10 border-l-4 ${TOAST_BORDER_COLORS[toast.type]}
+        rounded-xl shadow-2xl ${TOAST_GLOW[toast.type]}
+        p-4 max-w-md
       `}
       role="alert"
     >
-      <div className="flex items-start gap-3">
-        <div className={`flex-shrink-0 ${TOAST_ICON_STYLES[toast.type]}`}>
+      {/* Gradient overlay */}
+      <div className={`absolute inset-0 bg-gradient-to-r ${TOAST_GRADIENTS[toast.type]} pointer-events-none`} />
+
+      {/* Shimmer effect */}
+      <motion.div
+        className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent"
+        initial={{ x: "-100%" }}
+        animate={{ x: "200%" }}
+        transition={{ duration: 2, repeat: Infinity, repeatDelay: 3 }}
+      />
+
+      <div className="relative flex items-start gap-3">
+        <motion.div
+          className={`flex-shrink-0 ${TOAST_ICON_COLORS[toast.type]}`}
+          initial={{ scale: 0, rotate: -180 }}
+          animate={{ scale: 1, rotate: 0 }}
+          transition={{ type: "spring", damping: 10, delay: 0.1 }}
+        >
           {TOAST_ICONS[toast.type]}
-        </div>
+        </motion.div>
         <div className="flex-1 min-w-0">
-          <p className="font-semibold text-sm">{toast.title}</p>
-          <p className="text-sm mt-1 opacity-90 break-words">{toast.message}</p>
+          <p className="font-semibold text-sm text-white">{toast.title}</p>
+          <p className="text-sm mt-1 text-gray-300 break-words">{toast.message}</p>
         </div>
-        <button
+        <motion.button
+          whileHover={{ scale: 1.1, rotate: 90 }}
+          whileTap={{ scale: 0.9 }}
           onClick={handleDismiss}
-          className="flex-shrink-0 opacity-70 hover:opacity-100 transition-opacity"
+          className="flex-shrink-0 text-gray-400 hover:text-white transition-colors"
           aria-label="Dismiss"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
-        </button>
+        </motion.button>
       </div>
-    </div>
+
+      {/* Progress bar for duration */}
+      {toast.duration && toast.duration > 0 && (
+        <motion.div
+          className={`absolute bottom-0 left-0 h-0.5 ${TOAST_ICON_COLORS[toast.type].replace('text', 'bg')}`}
+          initial={{ width: "100%" }}
+          animate={{ width: "0%" }}
+          transition={{ duration: toast.duration / 1000, ease: "linear" }}
+        />
+      )}
+    </motion.div>
   );
 }
 
@@ -111,10 +155,12 @@ interface ToastContainerProps {
 
 export function ToastContainer({ toasts, onDismiss }: ToastContainerProps) {
   return (
-    <div className="fixed top-16 right-4 z-50 flex flex-col gap-2">
-      {toasts.map((toast) => (
-        <Toast key={toast.id} toast={toast} onDismiss={onDismiss} />
-      ))}
+    <div className="fixed top-20 right-4 z-50 flex flex-col gap-3">
+      <AnimatePresence mode="popLayout">
+        {toasts.map((toast) => (
+          <Toast key={toast.id} toast={toast} onDismiss={onDismiss} />
+        ))}
+      </AnimatePresence>
     </div>
   );
 }

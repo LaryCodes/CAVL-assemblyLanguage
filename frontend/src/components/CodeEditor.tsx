@@ -59,24 +59,30 @@ const registerMIPSLanguage = (monaco: Monaco) => {
     },
   });
 
-  // Define MIPS theme colors
+  // Define MIPS theme colors - matching our purple-blue design
   monaco.editor.defineTheme("mips-dark", {
     base: "vs-dark",
     inherit: true,
     rules: [
-      { token: "comment", foreground: "6A9955", fontStyle: "italic" },
-      { token: "keyword.directive", foreground: "C586C0" },
-      { token: "keyword.instruction", foreground: "569CD6" },
-      { token: "keyword.pseudo", foreground: "4EC9B0" },
-      { token: "variable.register", foreground: "9CDCFE" },
-      { token: "number", foreground: "B5CEA8" },
-      { token: "number.hex", foreground: "B5CEA8" },
-      { token: "string", foreground: "CE9178" },
-      { token: "type.identifier", foreground: "DCDCAA" },
-      { token: "identifier", foreground: "D4D4D4" },
+      { token: "comment", foreground: "6d7a96", fontStyle: "italic" },
+      { token: "keyword.directive", foreground: "c4b5fd" },
+      { token: "keyword.instruction", foreground: "a78bfa" },
+      { token: "keyword.pseudo", foreground: "818cf8" },
+      { token: "variable.register", foreground: "c7d2fe" },
+      { token: "number", foreground: "86efac" },
+      { token: "number.hex", foreground: "86efac" },
+      { token: "string", foreground: "fca5a5" },
+      { token: "type.identifier", foreground: "fde68a" },
+      { token: "identifier", foreground: "e2e8f0" },
     ],
     colors: {
-      "editor.background": "#1E1E1E",
+      "editor.background": "#0d0d1a",
+      "editor.foreground": "#e2e8f0",
+      "editorLineNumber.foreground": "#4c4c7a",
+      "editorLineNumber.activeForeground": "#a78bfa",
+      "editor.lineHighlightBackground": "#1a1a35",
+      "editor.selectionBackground": "#3730a3",
+      "editorCursor.foreground": "#a78bfa",
     },
   });
 };
@@ -95,9 +101,12 @@ export default function CodeEditor({ code, onChange, readOnly = false, errorLine
       registerMIPSLanguage(monaco);
     }
 
-    // Set the theme
+    // Set the theme strictly
     monaco.editor.setTheme("mips-dark");
   };
+
+  // Provide an immediate theme to prevent white flash
+  const editorTheme = "mips-dark";
 
   // Update error line decorations when errorLine changes
   useEffect(() => {
@@ -139,7 +148,7 @@ export default function CodeEditor({ code, onChange, readOnly = false, errorLine
   };
 
   return (
-    <div className="h-full w-full border border-gray-700 rounded-lg overflow-hidden">
+    <div className="h-full w-full code-editor-wrapper">
       <Editor
         height="100%"
         defaultLanguage="mips"
@@ -147,7 +156,7 @@ export default function CodeEditor({ code, onChange, readOnly = false, errorLine
         value={code}
         onChange={handleChange}
         onMount={handleEditorDidMount}
-        theme="mips-dark"
+        theme={editorTheme}
         options={{
           readOnly,
           minimap: { enabled: false },

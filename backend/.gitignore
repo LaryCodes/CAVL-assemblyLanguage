@@ -8,3 +8,15 @@ wheels/
 
 # Virtual environments
 .venv
+venv/
+env/
+
+# Hypothesis test cache
+.hypothesis/
+
+# Pytest cache
+.pytest_cache/
+
+# Environment variables
+.env
+.env.local

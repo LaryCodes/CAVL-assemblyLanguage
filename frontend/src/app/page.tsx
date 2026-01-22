@@ -2,250 +2,78 @@
 
 /**
  * CAVL - Computer Architecture Visual Lab
- * Main application page
- * 
- * Requirements: 8.1, 8.4, 2.4, 2.5, 7.5, 8.5
+ * Main application page - Redesigned with vertical tab menu
  */
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback } from "react";
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
-import { Eye } from "lucide-react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
+import { Sparkles } from "lucide-react";
 
-// Dynamic import Monaco Editor with SSR disabled to prevent hydration mismatch
-// Monaco adds js-focus-visible class to document which causes hydration errors
+// Components
+import WelcomeScreen from "@/components/WelcomeScreen";
+import VerticalTabMenu, { TabId } from "@/components/VerticalTabMenu";
+import RegisterDisplay from "@/components/RegisterDisplay";
+import InstructionDecoder from "@/components/InstructionDecoder";
+import PipelineVisualizer from "@/components/PipelineVisualizer";
+import { ToastContainer, useToast } from "@/components/Toast";
+import { api, ApiError } from "@/lib/api";
+import type { ExecutionState, RegisterState } from "@/lib/types";
+
+// Dynamic import Monaco Editor
 const CodeEditor = dynamic(() => import("@/components/CodeEditor"), {
   ssr: false,
   loading: () => (
-    <div className="h-full w-full border border-gray-700 rounded-lg overflow-hidden bg-gray-900 flex items-center justify-center">
-      <div className="text-gray-400 text-sm">Loading editor...</div>
+    <div className="h-full w-full flex items-center justify-center bg-slate-900/80">
+      <motion.div
+        animate={{ opacity: [0.5, 1, 0.5] }}
+        transition={{ duration: 1.5, repeat: Infinity }}
+        className="text-cyan-400 text-sm flex items-center gap-2"
+      >
+        <Sparkles className="w-4 h-4" />
+        Loading editor...
+      </motion.div>
     </div>
   ),
 });
-import ExecutionControls from "@/components/ExecutionControls";
-import MemoryLayout from "@/components/MemoryLayout";
-import RegisterDisplay from "@/components/RegisterDisplay";
-import HeapVisualization from "@/components/HeapVisualization";
-import Legend, { MEMORY_LEGEND_ITEMS, HEAP_LEGEND_ITEMS, REGISTER_LEGEND_ITEMS } from "@/components/Legend";
-import { ToastContainer, useToast } from "@/components/Toast";
-import { api, ApiError } from "@/lib/api";
-import type { ExecutionState, MemoryState, HeapState, RegisterState } from "@/lib/types";
 
-// Error type classification for better user feedback
-type ErrorCategory = "syntax" | "timeout" | "network" | "server" | "unknown";
-
-interface ParsedError {
-  category: ErrorCategory;
-  title: string;
-  message: string;
-  lineNumber?: number;
-}
-
-/**
- * Parse error messages to extract useful information
- * Requirements: 2.4, 2.5, 7.5
- */
-function parseError(error: unknown): ParsedError {
-  if (error instanceof ApiError) {
-    const message = error.message.toLowerCase();
-    
-    // Timeout errors (Requirement 2.5)
-    if (message.includes("timeout") || message.includes("exceeded") || error.statusCode === 408) {
-      return {
-        category: "timeout",
-        title: "Execution Timeout",
-        message: "Program execution exceeded the 2-second limit. Check for infinite loops or reduce program complexity.",
-      };
-    }
-    
-    // Syntax errors (Requirement 2.4)
-    if (message.includes("syntax") || message.includes("error at line") || message.includes("parse")) {
-      const lineMatch = error.message.match(/line\s*(\d+)/i);
-      return {
-        category: "syntax",
-        title: "Syntax Error",
-        message: error.message,
-        lineNumber: lineMatch ? parseInt(lineMatch[1], 10) : undefined,
-      };
-    }
-    
-    // Server errors
-    if (error.statusCode && error.statusCode >= 500) {
-      return {
-        category: "server",
-        title: "Server Error",
-        message: "The server encountered an error. Please try again later.",
-      };
-    }
-    
-    // API validation errors
-    if (error.statusCode === 400) {
-      return {
-        category: "syntax",
-        title: "Invalid Request",
-        message: error.message,
-      };
-    }
-    
-    return {
-      category: "unknown",
-      title: "Error",
-      message: error.message,
-    };
-  }
-  
-  // Network errors
-  if (error instanceof TypeError && String(error).includes("fetch")) {
-    return {
-      category: "network",
-      title: "Connection Error",
-      message: "Unable to connect to the server. Please check your connection and ensure the backend is running.",
-    };
-  }
-  
-  return {
-    category: "unknown",
-    title: "Unexpected Error",
-    message: error instanceof Error ? error.message : "An unexpected error occurred.",
-  };
-}
-
-// Example programs for the selector
-const EXAMPLE_PROGRAMS: Record<string, { name: string; description: string; code: string }> = {
-  step_demo: {
-    name: "Step Execution Demo",
-    description: "Demonstrates register changes, arithmetic, branches, and loops",
-    code: `# Step Execution Demo Program
-# Demonstrates step-by-step instruction execution
-
-.data
-    .align 2
-    value1:     .word 100
-    value2:     .word 200
-    result:     .word 0
-    array:      .word 10, 20, 30, 40, 50
+// Example programs
+const EXAMPLE_PROGRAMS: Record<string, { name: string; code: string }> = {
+  hello_world: {
+    name: "Hello World",
+    code: `.data
+    msg: .asciiz "Hello from MIPS!\\n"
 
 .text
 .globl main
 
 main:
-    # Section 1: Immediate Value Loading
-    li $t0, 42
-    li $t1, 0xFF
-    li $t2, -10
-    
-    # Section 2: Arithmetic Operations
-    add $t4, $t0, $t1       # $t4 = 42 + 255 = 297
-    sub $t5, $t0, $t2       # $t5 = 42 - (-10) = 52
-    addi $t6, $t0, 100      # $t6 = 42 + 100 = 142
-    
-    # Section 3: Memory Load/Store
-    la $t0, value1
-    lw $t1, 0($t0)          # $t1 = 100
-    la $t2, value2
-    lw $t3, 0($t2)          # $t3 = 200
-    add $t4, $t1, $t3       # $t4 = 300
-    la $t5, result
-    sw $t4, 0($t5)          # Store 300
-    
-    # Section 4: Loop - Sum array
-    la $s0, array
-    li $s1, 0               # sum = 0
-    li $s2, 0               # i = 0
-    li $s3, 5               # length = 5
-    
-loop_start:
-    bge $s2, $s3, loop_end
-    sll $t0, $s2, 2
-    add $t1, $s0, $t0
-    lw $t2, 0($t1)
-    add $s1, $s1, $t2       # sum += array[i]
-    addi $s2, $s2, 1
-    j loop_start
-    
-loop_end:
-    # $s1 = 150 (sum of array)
-    li $v0, 10
+    li $v0, 4
+    la $a0, msg
     syscall
-`,
+    
+    li $v0, 10
+    syscall`,
   },
-  memory_layout: {
-    name: "Memory Layout Demo",
-    description: "Shows Text, Data, Heap, and Stack segments",
-    code: `# Memory Layout Demo Program
-# Demonstrates the four main memory segments in MIPS
-
-.data
-    .align 2
-    global_int:     .word 0x12345678
-    global_array:   .word 1, 2, 3, 4, 5
-    buffer:         .space 16
-
-.text
+  arithmetic: {
+    name: "Arithmetic Demo",
+    code: `.text
 .globl main
 
 main:
-    # Part 1: DATA SEGMENT access
-    la $t0, global_int
-    lw $t1, 0($t0)              # Load from data segment
-    
-    la $t2, global_array
-    lw $t3, 8($t2)              # Load array[2] = 3
-    
-    li $t4, 0xDEADBEEF
-    sw $t4, 0($t0)              # Modify data segment
-    
-    # Part 2: HEAP SEGMENT (sbrk)
-    li $v0, 9
-    li $a0, 32                  # Request 32 bytes
-    syscall
-    move $t5, $v0               # $t5 = heap address
-    
-    li $t6, 0xCAFEBABE
-    sw $t6, 0($t5)              # Write to heap
-    
-    li $v0, 9
-    li $a0, 16                  # Request 16 more bytes
-    syscall
-    move $t7, $v0               # $t7 = second allocation
-    
-    # Part 3: STACK SEGMENT
-    move $s0, $sp               # Save original $sp
-    
-    li $a0, 10
-    jal stack_demo_func
-    
-    # Store segment addresses for visualization
-    la $s2, main                # Text segment
-    la $s3, global_int          # Data segment
-    move $s4, $t5               # Heap segment
-    move $s5, $sp               # Stack segment
+    li $t0, 42
+    li $t1, 100
+    add $t2, $t0, $t1
     
     li $v0, 10
-    syscall
-
-stack_demo_func:
-    addi $sp, $sp, -16
-    sw $ra, 12($sp)
-    sw $a0, 4($sp)
-    
-    move $s1, $sp               # Record $sp inside function
-    
-    lw $t0, 4($sp)
-    addi $t0, $t0, 5
-    sw $t0, 0($sp)
-    
-    lw $ra, 12($sp)
-    addi $sp, $sp, 16
-    jr $ra
-`,
+    syscall`,
   },
   heap_allocator: {
-    name: "Heap Allocator Demo",
-    description: "First-Fit malloc/free implementation with fragmentation",
-    code: `# Heap Allocator Demo - First-Fit Implementation
-# Demonstrates dynamic memory allocation
+    name: "Heap Allocator (First-Fit)",
+    code: `# =============================================================================
+# Heap Allocator Demo - First-Fit Implementation
+# Demonstrates malloc/free operations with fragmentation
+# =============================================================================
 
 .data
     .align 2
@@ -280,14 +108,8 @@ skip_a:
     sw $t0, 0($s1)
 skip_b:
     
-    # Free Block B (creates fragmentation)
-    beqz $s1, skip_free_b
-    move $a0, $s1
-    jal free
-skip_free_b:
-    
-    # Allocate Block C (24 bytes) - reuses B's space
-    li $a0, 24
+    # Allocate Block C (16 bytes)
+    li $a0, 16
     jal malloc
     move $s2, $v0
     beqz $s2, skip_c
@@ -295,6 +117,22 @@ skip_free_b:
     sw $t0, 0($s2)
 skip_c:
     
+    # Free Block B (creates fragmentation)
+    beqz $s1, skip_free_b
+    move $a0, $s1
+    jal free
+skip_free_b:
+    
+    # Allocate Block D (24 bytes) - reuses Block B
+    li $a0, 24
+    jal malloc
+    move $s3, $v0
+    beqz $s3, skip_d
+    li $t0, 0xDDDDDDDD
+    sw $t0, 0($s3)
+skip_d:
+    
+    # Exit
     li $v0, 10
     syscall
 
@@ -324,6 +162,7 @@ malloc:
     sw $s0, 12($sp)
     sw $s1, 8($sp)
     sw $s2, 4($sp)
+    sw $s3, 0($sp)
     lw $t0, HEADER_SIZE
     add $s0, $a0, $t0
     addi $s0, $s0, 3
@@ -354,18 +193,18 @@ found_fit:
     sw $s0, 0($s1)
     beqz $s2, update_head_split
     sw $t3, 8($s2)
-    j mark_alloc
+    j mark_allocated
 update_head_split:
     sw $t3, free_list_head
-    j mark_alloc
+    j mark_allocated
 no_split:
     lw $t0, 8($s1)
-    beqz $s2, update_head_no
+    beqz $s2, update_head_no_split
     sw $t0, 8($s2)
-    j mark_alloc
-update_head_no:
+    j mark_allocated
+update_head_no_split:
     sw $t0, free_list_head
-mark_alloc:
+mark_allocated:
     li $t0, 1
     sw $t0, 4($s1)
     sw $zero, 8($s1)
@@ -391,6 +230,7 @@ no_fit:
 malloc_fail:
     li $v0, 0
 malloc_done:
+    lw $s3, 0($sp)
     lw $s2, 4($sp)
     lw $s1, 8($sp)
     lw $s0, 12($sp)
@@ -414,484 +254,455 @@ free_done:
     lw $s0, 0($sp)
     lw $ra, 4($sp)
     addi $sp, $sp, 8
-    jr $ra
-`,
+    jr $ra`,
   },
-};
-
-// Default empty states
-const DEFAULT_MEMORY_STATE: MemoryState = {
-  text: { startAddress: 0x00400000, endAddress: 0x00400000, blocks: [] },
-  data: { startAddress: 0x10010000, endAddress: 0x10010000, blocks: [] },
-  heap: { startAddress: 0x10040000, endAddress: 0x10040000, blocks: [] },
-  stack: { startAddress: 0x7fffeffc, endAddress: 0x7fffeffc, blocks: [] },
-};
-
-const DEFAULT_HEAP_STATE: HeapState = {
-  blocks: [],
-  freeList: [],
-  fragmentation: 0,
-};
-
-const DEFAULT_REGISTER_STATE: RegisterState = {
-  values: {},
-};
-
-// Default code shown in editor
-const DEFAULT_CODE = `# CAVL - Computer Architecture Visual Lab
-# Enter your MIPS assembly code here or select an example program
+  memory_layout: {
+    name: "Memory Layout (TEXT/DATA/HEAP/STACK)",
+    code: `# =============================================================================
+# Memory Layout Demo - Shows all 4 memory segments
+# TEXT (0x00400000) | DATA (0x10010000) | HEAP (grows up) | STACK (grows down)
+# =============================================================================
 
 .data
-    message: .asciiz "Hello, CAVL!\\n"
+    welcome_msg:    .asciiz "Memory Layout Demo\\n"
+    .align 2
+    global_int:     .word 0x12345678
+    global_array:   .word 1, 2, 3, 4, 5
+    buffer:         .space 16
 
 .text
 .globl main
 
 main:
-    # Load immediate values
-    li $t0, 42
-    li $t1, 100
+    # =========================================================================
+    # PART 1: DATA SEGMENT Access
+    # =========================================================================
+    la $t0, global_int
+    lw $t1, 0($t0)              # $t1 = 0x12345678
+    la $t2, global_array
+    lw $t3, 8($t2)              # $t3 = array[2] = 3
+    li $t4, 0xDEADBEEF
+    sw $t4, 0($t0)              # Modify global_int
     
-    # Arithmetic
-    add $t2, $t0, $t1
+    # =========================================================================
+    # PART 2: HEAP SEGMENT (dynamic allocation)
+    # =========================================================================
+    li $v0, 9                   # sbrk syscall
+    li $a0, 32                  # Request 32 bytes
+    syscall
+    move $t5, $v0               # $t5 = heap address
+    
+    # Write to heap
+    li $t6, 0xCAFEBABE
+    sw $t6, 0($t5)
+    li $t6, 0xFEEDFACE
+    sw $t6, 4($t5)
+    
+    # Allocate more (heap grows upward)
+    li $v0, 9
+    li $a0, 16
+    syscall
+    move $t7, $v0               # $t7 > $t5 (higher address)
+    li $t6, 0xBEEFCAFE
+    sw $t6, 0($t7)
+    
+    # =========================================================================
+    # PART 3: STACK SEGMENT (function calls)
+    # =========================================================================
+    move $s0, $sp               # Save original $sp
+    li $a0, 10
+    jal stack_demo_func         # Call function
+    
+    # =========================================================================
+    # PART 4: Register Summary (for visualization)
+    # =========================================================================
+    la $s2, main                # TEXT segment address
+    la $s3, global_int          # DATA segment address
+    move $s4, $t5               # HEAP segment address
+    move $s5, $sp               # STACK segment address
     
     # Exit
     li $v0, 10
     syscall
-`;
+
+stack_demo_func:
+    # Create stack frame (grows downward)
+    addi $sp, $sp, -16
+    sw $ra, 12($sp)
+    sw $s0, 8($sp)
+    sw $a0, 4($sp)
+    
+    move $s1, $sp               # $s1 = $sp inside function (lower than caller)
+    
+    # Local computation
+    lw $t0, 4($sp)
+    addi $t0, $t0, 5
+    sw $t0, 0($sp)
+    
+    # Restore and return
+    lw $s0, 8($sp)
+    lw $ra, 12($sp)
+    addi $sp, $sp, 16
+    jr $ra`,
+  },
+  step_demo: {
+    name: "Step-by-Step Execution Demo",
+    code: `# =============================================================================
+# Step Execution Demo - 8 sections demonstrating different instruction types
+# Perfect for step-by-step debugging and visualization
+# =============================================================================
+
+.data
+    .align 2
+    value1:     .word 100
+    value2:     .word 200
+    result:     .word 0
+    array:      .word 10, 20, 30, 40, 50
+
+.text
+.globl main
+
+main:
+    # =========================================================================
+    # SECTION 1: Immediate Loading
+    # =========================================================================
+    li $t0, 42                  # $t0 = 42
+    li $t1, 0xFF                # $t1 = 255
+    li $t2, -10                 # $t2 = -10
+    li $t3, 0x12345678          # $t3 = 0x12345678
+    
+    # =========================================================================
+    # SECTION 2: Arithmetic
+    # =========================================================================
+    add $t4, $t0, $t1           # $t4 = 42 + 255 = 297
+    sub $t5, $t0, $t2           # $t5 = 42 - (-10) = 52
+    addi $t6, $t0, 100          # $t6 = 142
+    mult $t0, $t1               # HI:LO = 42 * 255
+    mflo $t7                    # $t7 = 10710
+    div $t1, $t0                # LO = 255/42, HI = 255%42
+    mflo $t8                    # $t8 = 6
+    mfhi $t9                    # $t9 = 3
+    
+    # =========================================================================
+    # SECTION 3: Logical Operations
+    # =========================================================================
+    li $s0, 0x0F0F0F0F
+    li $s1, 0xFF00FF00
+    and $s2, $s0, $s1           # $s2 = 0x0F000F00
+    or $s3, $s0, $s1            # $s3 = 0xFF0FFF0F
+    xor $s4, $s0, $s1           # $s4 = 0xF00FF00F
+    nor $s5, $s0, $zero         # $s5 = 0xF0F0F0F0
+    li $s6, 1
+    sll $s6, $s6, 4             # $s6 = 16
+    srl $s7, $s1, 8             # $s7 = 0x00FF00FF
+    
+    # =========================================================================
+    # SECTION 4: Memory Operations
+    # =========================================================================
+    la $t0, value1
+    lw $t1, 0($t0)              # $t1 = 100
+    la $t2, value2
+    lw $t3, 0($t2)              # $t3 = 200
+    add $t4, $t1, $t3           # $t4 = 300
+    la $t5, result
+    sw $t4, 0($t5)              # Store 300
+    lw $t6, 0($t5)              # Verify: $t6 = 300
+    
+    # =========================================================================
+    # SECTION 5: Branches
+    # =========================================================================
+    li $t0, 5
+    li $t1, 10
+    beq $t0, $t1, skip1         # Not taken
+    addi $t0, $t0, 1            # $t0 = 6
+skip1:
+    bne $t0, $t1, skip2         # Taken
+    addi $t0, $t0, 100          # Skipped
+skip2:
+    slt $t2, $t0, $t1           # $t2 = 1 (6 < 10)
+    
+    # =========================================================================
+    # SECTION 6: Array Loop
+    # =========================================================================
+    la $s0, array
+    li $s1, 0                   # sum = 0
+    li $s2, 0                   # i = 0
+    li $s3, 5                   # length = 5
+loop_start:
+    bge $s2, $s3, loop_end
+    sll $t0, $s2, 2             # offset = i * 4
+    add $t1, $s0, $t0
+    lw $t2, 0($t1)              # Load array[i]
+    add $s1, $s1, $t2           # sum += array[i]
+    addi $s2, $s2, 1            # i++
+    j loop_start
+loop_end:
+    # $s1 = 150 (sum)
+    
+    # =========================================================================
+    # SECTION 7: Function Calls
+    # =========================================================================
+    li $a0, 10
+    jal compute_square          # $v0 = 100
+    move $s4, $v0
+    li $a0, 7
+    jal compute_square          # $v0 = 49
+    move $s5, $v0
+    
+    # =========================================================================
+    # SECTION 8: Stack Operations
+    # =========================================================================
+    addi $sp, $sp, -12          # Push 3 values
+    sw $s1, 8($sp)
+    sw $s4, 4($sp)
+    sw $s5, 0($sp)
+    li $s1, 0
+    li $s4, 0
+    li $s5, 0
+    lw $s5, 0($sp)              # Pop values
+    lw $s4, 4($sp)
+    lw $s1, 8($sp)
+    addi $sp, $sp, 12
+    
+    # Exit
+    li $v0, 10
+    syscall
+
+compute_square:
+    mult $a0, $a0
+    mflo $v0
+    jr $ra`,
+  },
+};
+
+// Default states
+const DEFAULT_REGISTER_STATE: RegisterState = {
+  values: {
+    $zero: 0, $at: 0, $v0: 0, $v1: 0,
+    $a0: 0, $a1: 0, $a2: 0, $a3: 0,
+    $t0: 0, $t1: 0, $t2: 0, $t3: 0, $t4: 0, $t5: 0, $t6: 0, $t7: 0,
+    $s0: 0, $s1: 0, $s2: 0, $s3: 0, $s4: 0, $s5: 0, $s6: 0, $s7: 0,
+    $t8: 0, $t9: 0, $k0: 0, $k1: 0,
+    $gp: 268468224, $sp: 2147479548, $fp: 0, $ra: 0,
+  },
+};
 
 export default function Home() {
-  const router = useRouter();
-  
+  // Menu state
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabId>("welcome");
+
   // Code editor state
-  const [code, setCode] = useState(DEFAULT_CODE);
-  const [selectedExample, setSelectedExample] = useState<string>("");
-  
+  const [code, setCode] = useState(EXAMPLE_PROGRAMS.hello_world.code);
+  const [isRunning, setIsRunning] = useState(false);
+
   // Execution state
   const [executionState, setExecutionState] = useState<ExecutionState | null>(null);
-  const [isRunning, setIsRunning] = useState(false);
-  const [isLoaded, setIsLoaded] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  
-  // Error state for code editor (syntax errors)
-  const [syntaxError, setSyntaxError] = useState<{ line?: number; message: string } | null>(null);
-  
-  // Toast notifications
-  const { toasts, dismissToast, showError, showSuccess, showWarning } = useToast();
-  
-  // Legend visibility state
-  const [showLegend, setShowLegend] = useState(false);
-
-  // Track previous memory state for change detection
-  const [prevMemory, setPrevMemory] = useState<MemoryState | null>(null);
-  
-  // Derived state
-  const memory = executionState?.memory ?? DEFAULT_MEMORY_STATE;
-  const heap = executionState?.heap ?? DEFAULT_HEAP_STATE;
   const registers = executionState?.registers ?? DEFAULT_REGISTER_STATE;
   const changedRegisters = executionState?.changedRegisters ?? [];
-  const isComplete = executionState?.isComplete ?? false;
-  const currentPC = executionState?.pc ?? 0;
-  const currentInstruction = executionState?.currentInstruction ?? "";
-  
-  // Compute changed memory addresses by comparing current and previous memory
-  const changedAddresses = useMemo(() => {
-    if (!prevMemory || !executionState?.memory) return [];
-    
-    const changes: number[] = [];
-    const currentMem = executionState.memory;
-    
-    // Helper to find changed addresses in a segment
-    const findChanges = (prevSeg: typeof prevMemory.text, currSeg: typeof currentMem.text) => {
-      const prevMap = new Map(prevSeg.blocks.map(b => [b.address, b.value]));
-      const currMap = new Map(currSeg.blocks.map(b => [b.address, b.value]));
-      
-      // Check for changed or new values
-      currSeg.blocks.forEach(block => {
-        const prevValue = prevMap.get(block.address);
-        if (prevValue !== block.value) {
-          changes.push(block.address);
-        }
-      });
-    };
-    
-    findChanges(prevMemory.text, currentMem.text);
-    findChanges(prevMemory.data, currentMem.data);
-    findChanges(prevMemory.heap, currentMem.heap);
-    findChanges(prevMemory.stack, currentMem.stack);
-    
-    return changes;
-  }, [prevMemory, executionState?.memory]);
 
-  /**
-   * Handle errors with proper categorization and user feedback
-   * Requirements: 2.4, 2.5, 7.5
-   */
-  const handleError = useCallback((error: unknown, context: string) => {
-    const parsed = parseError(error);
-    
-    // Set syntax error for code editor highlighting
-    if (parsed.category === "syntax") {
-      setSyntaxError({
-        line: parsed.lineNumber,
-        message: parsed.message,
-      });
-    }
-    
-    // Show toast notification
-    showError(parsed.title, parsed.message);
-    
-    console.error(`[${context}]`, error);
-  }, [showError]);
+  // Toast notifications
+  const { toasts, showSuccess, showError, dismissToast } = useToast();
 
-  // Handle example program selection
-  const handleExampleSelect = useCallback((exampleKey: string) => {
-    if (exampleKey && EXAMPLE_PROGRAMS[exampleKey]) {
-      setCode(EXAMPLE_PROGRAMS[exampleKey].code);
-      setSelectedExample(exampleKey);
-      // Reset execution state when loading new example
-      setExecutionState(null);
-      setPrevMemory(null);
-      setIsLoaded(false);
-      setSyntaxError(null);  // Clear any syntax errors
-    }
+  // Handle tab selection
+  const handleTabSelect = useCallback((tabId: TabId) => {
+    setActiveTab(tabId);
+    setIsMenuOpen(false); // Auto-close menu
   }, []);
 
-  // Load code for execution
-  const handleLoad = useCallback(async () => {
-    setSyntaxError(null);  // Clear previous syntax errors
+  // Handle example selection
+  const handleExampleSelect = useCallback((exampleKey: string) => {
+    const example = EXAMPLE_PROGRAMS[exampleKey];
+    if (example) {
+      setCode(example.code);
+      setExecutionState(null);
+      showSuccess("Example Loaded", `Loaded: ${example.name}`);
+    }
+  }, [showSuccess]);
+
+  // Handle code execution
+  const handleExecute = useCallback(async () => {
     setIsRunning(true);
-    setIsLoading(true);
-    setPrevMemory(null);  // Clear previous memory on new load
-    
+
     try {
       const response = await api.execute(code, "step");
-      
-      if (response.success && response.state) {
-        setExecutionState(response.state);
-        setIsLoaded(true);
-        showSuccess("Program Executed", "Showing final state after execution. Register values and memory are displayed.");
-      } else {
-        handleError(new ApiError(response.error ?? "Failed to load program"), "Load");
-        setIsLoaded(false);
-      }
-    } catch (err) {
-      handleError(err, "Load");
-      setIsLoaded(false);
-    } finally {
-      setIsRunning(false);
-      setIsLoading(false);
-    }
-  }, [code, handleError, showSuccess]);
 
-  // Step execution
-  const handleStep = useCallback(async () => {
-    if (!isLoaded || isComplete) return;
-    
-    setIsRunning(true);
-    
-    // Save current memory state before stepping
-    if (executionState?.memory) {
-      setPrevMemory(executionState.memory);
-    }
-    
-    try {
-      const response = await api.step();
-      
       if (response.success && response.state) {
         setExecutionState(response.state);
-        if (response.state.isComplete) {
-          showSuccess("Execution Complete", "Program has finished executing.");
-        }
+        showSuccess("Execution Complete", "Program executed successfully");
       } else {
-        handleError(new ApiError(response.error ?? "Step execution failed"), "Step");
+        showError("Execution Failed", response.error || "Unknown error");
       }
-    } catch (err) {
-      handleError(err, "Step");
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : "Connection error";
+      showError("Execution Error", message);
     } finally {
       setIsRunning(false);
     }
-  }, [isLoaded, isComplete, handleError, showSuccess, executionState?.memory]);
-
-  // Run to completion - In V1, this just shows the final state
-  const handleRun = useCallback(async () => {
-    if (!isLoaded) return;
-    
-    // In V1, execution is already complete after Load
-    // The "Run" button just confirms the final state
-    if (isComplete) {
-      showSuccess("Execution Complete", "Program has already finished executing.");
-      return;
-    }
-    
-    setIsRunning(true);
-    
-    try {
-      // Try one step to advance to final state
-      const response = await api.step();
-      
-      if (response.success && response.state) {
-        setExecutionState(response.state);
-        showSuccess("Execution Complete", "Program has finished executing.");
-      } else if (response.error?.includes("already complete")) {
-        showSuccess("Execution Complete", "Program has already finished executing.");
-      } else {
-        handleError(new ApiError(response.error ?? "Execution failed"), "Run");
-      }
-    } catch (err) {
-      handleError(err, "Run");
-    } finally {
-      setIsRunning(false);
-    }
-  }, [isLoaded, isComplete, handleError, showSuccess]);
-
-  // Reset execution
-  const handleReset = useCallback(async () => {
-    if (!isLoaded) return;
-    
-    setIsRunning(true);
-    setPrevMemory(null);  // Clear previous memory on reset
-    
-    try {
-      const response = await api.reset();
-      
-      if (response.success && response.state) {
-        setExecutionState(response.state);
-        showSuccess("Reset Complete", "Program restored to initial state.");
-      } else {
-        handleError(new ApiError(response.error ?? "Reset failed"), "Reset");
-      }
-    } catch (err) {
-      handleError(err, "Reset");
-    } finally {
-      setIsRunning(false);
-    }
-  }, [isLoaded, handleError, showSuccess]);
+  }, [code, showSuccess, showError]);
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white flex flex-col">
-      {/* Header - Responsive for desktop sizes (Requirement 8.3) */}
-      <header className="bg-gray-900 border-b border-gray-800 px-4 py-3">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-3 flex-shrink-0">
-            <h1 className="text-xl font-bold text-blue-400">CAVL</h1>
-            <span className="text-sm text-gray-400 hidden sm:inline">Computer Architecture Visual Lab</span>
-            
-            {/* Legend Toggle Button */}
-            <button
-              onClick={() => setShowLegend(!showLegend)}
-              className={`ml-2 px-2 py-1 text-xs rounded transition-colors ${
-                showLegend 
-                  ? "bg-blue-600 text-white" 
-                  : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-              }`}
-              title="Toggle color legend"
-            >
-              <span className="flex items-center gap-1">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
-                </svg>
-                <span className="hidden sm:inline">Legend</span>
-              </span>
-            </button>
-            
-            {/* Visual Teaching Lab Button */}
-            <motion.button
-              onClick={() => router.push('/visual')}
-              className="ml-2 px-4 py-2 text-sm rounded-lg bg-gradient-to-r from-cyan-500 via-blue-600 to-purple-600 text-white hover:from-cyan-400 hover:via-blue-500 hover:to-purple-500 transition-all font-semibold shadow-xl hover:shadow-2xl hover:shadow-cyan-500/50"
-              whileHover={{ scale: 1.05, y: -2 }}
-              whileTap={{ scale: 0.95 }}
-              title="Switch to Visual Teaching Lab"
-            >
-              <span className="flex items-center gap-2">
-                <Eye className="w-4 h-4" />
-                <span className="hidden sm:inline">🧠 Visual Lab</span>
-                <span className="sm:hidden">Visual</span>
-              </span>
-            </motion.button>
-          </div>
-          
-          {/* Example Program Selector and Status */}
-          <div className="flex items-center gap-4 flex-wrap">
-            <div className="flex items-center gap-2">
-              <label htmlFor="example-select" className="text-sm text-gray-400 hidden lg:inline">
-                Examples:
-              </label>
-              <select
-                id="example-select"
-                value={selectedExample}
-                onChange={(e) => handleExampleSelect(e.target.value)}
-                className="bg-gray-800 border border-gray-700 text-white text-sm rounded px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[160px]"
-                disabled={isRunning}
-              >
-                <option value="">Select example...</option>
-                {Object.entries(EXAMPLE_PROGRAMS).map(([key, program]) => (
-                  <option key={key} value={key}>
-                    {program.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            
-            {/* Status indicator - hidden on smaller screens */}
-            {currentPC > 0 && (
-              <div className="text-sm font-mono hidden xl:block">
-                <span className="text-gray-400">PC: </span>
-                <span className="text-green-400">0x{currentPC.toString(16).toUpperCase().padStart(8, "0")}</span>
-              </div>
-            )}
-            {currentInstruction && (
-              <div className="text-sm font-mono max-w-xs truncate hidden xl:block">
-                <span className="text-gray-400">Instruction: </span>
-                <span className="text-yellow-400">{currentInstruction}</span>
-              </div>
-            )}
-          </div>
-        </div>
-      </header>
-
-      {/* Toast Notifications - Requirements: 2.4, 2.5, 7.5 */}
-      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
-
-      {/* Legend Panel */}
-      {showLegend && (
-        <div className="absolute top-16 left-4 z-50 bg-gray-900 border border-gray-700 rounded-lg shadow-xl p-4 w-80">
-          <div className="flex justify-between items-center mb-3">
-            <h3 className="text-sm font-semibold text-white">Color Legend</h3>
-            <button
-              onClick={() => setShowLegend(false)}
-              className="text-gray-400 hover:text-white"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-          
-          <div className="space-y-4">
-            <div>
-              <div className="text-xs font-medium text-gray-400 mb-2">Memory Segments</div>
-              <Legend items={MEMORY_LEGEND_ITEMS} compact />
-            </div>
-            
-            <div className="border-t border-gray-700 pt-3">
-              <div className="text-xs font-medium text-gray-400 mb-2">Heap Blocks</div>
-              <Legend items={HEAP_LEGEND_ITEMS} compact />
-            </div>
-            
-            <div className="border-t border-gray-700 pt-3">
-              <div className="text-xs font-medium text-gray-400 mb-2">Registers</div>
-              <Legend items={REGISTER_LEGEND_ITEMS} compact />
-            </div>
-          </div>
-          
-          <div className="mt-4 pt-3 border-t border-gray-700 text-xs text-gray-500">
-            <p>💡 Hover over any block for detailed information</p>
-          </div>
-        </div>
-      )}
-
-      {/* Execution Controls */}
-      <div className="px-4 py-2 bg-gray-900/50 border-b border-gray-800">
-        <ExecutionControls
-          onStep={handleStep}
-          onRun={handleRun}
-          onReset={handleReset}
-          onLoad={handleLoad}
-          isRunning={isRunning}
-          isComplete={isComplete}
-          isLoading={isLoading}
-        />
+    <div className="min-h-screen animated-bg relative overflow-hidden">
+      {/* Animated Particles */}
+      <div className="particles">
+        {[...Array(20)].map((_, i) => (
+          <div
+            key={i}
+            className="particle"
+            style={{
+              left: `${(i * 5.26) % 100}%`,
+              animationDelay: `${(i * 0.75) % 15}s`,
+              animationDuration: `${15 + (i * 0.5) % 10}s`,
+            }}
+          />
+        ))}
       </div>
 
-      {/* Main Content - Responsive layout (Requirement 8.3) */}
-      <main className="flex-1 flex flex-col lg:flex-row overflow-hidden min-h-0">
-        {/* Left Panel - Code Editor */}
-        <div className="lg:w-1/2 w-full flex flex-col border-r border-gray-800 min-h-[300px] lg:min-h-0">
-          <div className="px-4 py-2 bg-gray-900/30 border-b border-gray-800 flex items-center justify-between flex-shrink-0">
-            <h2 className="text-sm font-semibold text-gray-300">MIPS Code Editor</h2>
-            {syntaxError && (
-              <div className="flex items-center gap-2 text-red-400 text-xs">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <span>
-                  {syntaxError.line ? `Error at line ${syntaxError.line}` : "Syntax error"}
-                </span>
-              </div>
-            )}
-          </div>
-          {/* Syntax Error Banner */}
-          {syntaxError && (
-            <div className="px-4 py-2 bg-red-900/30 border-b border-red-800 text-red-300 text-sm flex-shrink-0">
-              <div className="flex items-start gap-2">
-                <svg className="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <div className="flex-1 min-w-0">
-                  <span className="font-medium">Syntax Error: </span>
-                  <span className="opacity-90 break-words">{syntaxError.message}</span>
+      {/* Main Content Area */}
+      <motion.main
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ delay: 0.2 }}
+        className="fixed top-4 left-4 right-20 bottom-4 z-10"
+      >
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 20 }}
+            transition={{ duration: 0.3 }}
+            className="h-full glass-strong rounded-3xl border border-cyan-500/30 shadow-2xl overflow-hidden flex flex-col"
+          >
+            {/* Content based on active tab */}
+            {activeTab === "welcome" && <WelcomeScreen />}
+
+            {activeTab === "editor" && (
+              <>
+                {/* Floating Action Buttons - Top Right */}
+                <div className="absolute top-4 right-4 z-20 flex gap-3">
+                  {/* Examples Dropdown */}
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.8, x: 20 }}
+                    animate={{ opacity: 1, scale: 1, x: 0 }}
+                    transition={{ delay: 0.1 }}
+                  >
+                    <select
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          handleExampleSelect(e.target.value);
+                          e.target.value = ""; // Reset selection
+                        }
+                      }}
+                      value=""
+                      className="px-4 py-3 rounded-xl text-white text-sm font-medium cursor-pointer
+                        transition-all duration-300
+                        focus:outline-none focus:ring-2 focus:ring-cyan-400/50
+                        hover:brightness-110"
+                      style={{
+                        background: "linear-gradient(135deg, rgba(15, 23, 42, 0.8) 0%, rgba(30, 41, 59, 0.8) 100%)",
+                        backdropFilter: "blur(20px)",
+                        WebkitBackdropFilter: "blur(20px)",
+                        boxShadow: "0 8px 32px 0 rgba(0, 0, 0, 0.4), inset 0 0 0 1px rgba(255, 255, 255, 0.1)",
+                        border: "1px solid rgba(6, 182, 212, 0.3)",
+                      }}
+                    >
+                      <option value="" className="bg-slate-800">📚 Load Example...</option>
+                      {Object.entries(EXAMPLE_PROGRAMS).map(([key, program]) => (
+                        <option key={key} value={key} className="bg-slate-800">
+                          {program.name}
+                        </option>
+                      ))}
+                    </select>
+                  </motion.div>
+
+                  {/* Execute Button */}
+                  <motion.button
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    onClick={handleExecute}
+                    disabled={isRunning}
+                    whileHover={{ scale: 1.05, y: -2 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-white
+                      transition-all duration-300
+                      disabled:opacity-50 disabled:cursor-not-allowed
+                      hover:brightness-110"
+                    style={{
+                      background: isRunning 
+                        ? "linear-gradient(135deg, rgba(88, 28, 135, 0.8) 0%, rgba(67, 56, 202, 0.8) 100%)"
+                        : "linear-gradient(135deg, rgba(109, 40, 217, 0.85) 0%, rgba(79, 70, 229, 0.85) 100%)",
+                      backdropFilter: "blur(20px)",
+                      WebkitBackdropFilter: "blur(20px)",
+                      boxShadow: "0 8px 32px 0 rgba(109, 40, 217, 0.4), inset 0 0 0 1px rgba(255, 255, 255, 0.1)",
+                      border: "1px solid rgba(139, 92, 246, 0.5)",
+                    }}
+                  >
+                    {isRunning ? (
+                      <>
+                        <motion.div
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                          className="w-5 h-5 border-2 border-white border-t-transparent rounded-full"
+                        />
+                        <span>Executing...</span>
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M8 5v14l11-7z" />
+                        </svg>
+                        <span>Execute Code</span>
+                      </>
+                    )}
+                  </motion.button>
                 </div>
-                <button
-                  onClick={() => setSyntaxError(null)}
-                  className="text-red-400 hover:text-red-300 flex-shrink-0"
-                  aria-label="Dismiss error"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-          )}
-          <div className="flex-1 p-2 min-h-0">
-            <CodeEditor
-              code={code}
-              onChange={(newCode) => {
-                setCode(newCode);
-                setSyntaxError(null);  // Clear syntax error when code changes
-              }}
-              readOnly={isRunning}
-              errorLine={syntaxError?.line}
-            />
-          </div>
-        </div>
 
-        {/* Right Panel - Visualizations */}
-        <div className="lg:w-1/2 w-full flex flex-col overflow-hidden min-h-0">
-          {/* Top: Memory Layout */}
-          <div className="flex-1 border-b border-gray-800 overflow-auto min-h-[200px]">
-            <MemoryLayout memory={memory} changedAddresses={changedAddresses} />
-          </div>
-
-          {/* Middle: Heap Visualization */}
-          <div className="h-48 lg:h-64 border-b border-gray-800 overflow-auto flex-shrink-0">
-            <HeapVisualization heap={heap} />
-          </div>
-
-          {/* Bottom: Registers */}
-          <div className="h-56 lg:h-72 overflow-auto flex-shrink-0">
-            <RegisterDisplay
-              registers={registers}
-              changedRegisters={changedRegisters}
-            />
-          </div>
-        </div>
-      </main>
-
-      {/* Footer - Responsive (Requirement 8.3) */}
-      <footer className="bg-gray-900 border-t border-gray-800 px-4 py-2 text-xs text-gray-500 flex-shrink-0">
-        <div className="flex justify-between items-center flex-wrap gap-2">
-          <span>CAVL V1 - Powered by MARS Simulator</span>
-          <span>
-            {isLoaded ? (
-              isComplete ? "Execution Complete" : "Program Loaded"
-            ) : (
-              "Click 'Load' to start"
+                {/* Code Editor - Full Height */}
+                <div className="h-full overflow-hidden">
+                  <CodeEditor
+                    code={code}
+                    onChange={setCode}
+                    readOnly={isRunning}
+                  />
+                </div>
+              </>
             )}
-          </span>
-        </div>
-      </footer>
+
+            {activeTab === "registers" && (
+              <div className="h-full overflow-auto p-6">
+                <RegisterDisplay
+                  registers={registers}
+                  changedRegisters={changedRegisters}
+                />
+              </div>
+            )}
+
+            {activeTab === "decoder" && (
+              <div className="h-full overflow-auto p-4">
+                <InstructionDecoder />
+              </div>
+            )}
+
+            {activeTab === "pipeline" && (
+              <div className="h-full overflow-hidden">
+                <PipelineVisualizer />
+              </div>
+            )}
+          </motion.div>
+        </AnimatePresence>
+      </motion.main>
+
+      {/* Vertical Tab Menu */}
+      <VerticalTabMenu
+        isOpen={isMenuOpen}
+        onToggle={() => setIsMenuOpen(!isMenuOpen)}
+        activeTab={activeTab}
+        onTabSelect={handleTabSelect}
+      />
+
+      {/* Toast Notifications */}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }

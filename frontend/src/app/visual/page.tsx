@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Play, RotateCcw, Code2, Loader2 } from 'lucide-react';
+import { ArrowLeft, Play, RotateCcw, Code2, Loader2, Sparkles, Zap } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import dynamic from 'next/dynamic';
 import VisualTeachingLab from '@/components/VisualTeachingLab';
@@ -12,8 +12,15 @@ import type { ExecutionState as BackendExecutionState } from '@/lib/types';
 const CodeEditor = dynamic(() => import('@/components/CodeEditor'), {
   ssr: false,
   loading: () => (
-    <div className="h-full w-full border border-cyan-700/50 rounded-lg overflow-hidden bg-slate-900 flex items-center justify-center">
-      <div className="text-cyan-400 text-sm">Loading editor...</div>
+    <div className="h-full w-full code-editor-wrapper bg-slate-900/80 flex items-center justify-center">
+      <motion.div
+        animate={{ opacity: [0.5, 1, 0.5] }}
+        transition={{ duration: 1.5, repeat: Infinity }}
+        className="text-violet-400 text-sm flex items-center gap-2"
+      >
+        <Sparkles className="w-4 h-4" />
+        Loading editor...
+      </motion.div>
     </div>
   ),
 });
@@ -116,112 +123,30 @@ export default function VisualPage() {
   const [error, setError] = useState<string | null>(null);
   const [showEditor, setShowEditor] = useState(true);
 
-  const transformState = useCallback((backendState: BackendExecutionState, index: number): VisualExecutionState => {
-    // Get the actual instruction - handle various formats
-    let instruction = backendState.currentInstruction || '';
-    
-    // If instruction indicates final state or is generic, create a meaningful description
-    if (!instruction || 
-        instruction.trim() === '' || 
-        instruction === 'nop' ||
-        instruction.includes('final state') ||
-        instruction.includes('Program executed')) {
-      // Create a description based on the step number and PC
-      if (backendState.pc) {
-        instruction = `Step ${index + 1} - PC: 0x${backendState.pc.toString(16).toUpperCase()}`;
-      } else {
-        instruction = `Execution Step ${index + 1}`;
-      }
-    }
-    
-    // Clean up the instruction string
-    instruction = instruction.trim();
-
-    // Create a meaningful description
-    let description = '';
-    if (backendState.currentInstruction && !backendState.currentInstruction.includes('final state')) {
-      description = `Executing: ${backendState.currentInstruction}`;
-    } else {
-      description = `Program state at step ${index + 1}`;
-    }
-
-    const state: VisualExecutionState = {
-      timestamp: Date.now() + index * 100,
-      instruction: instruction,
-      pc: backendState.pc || 0,
-      registers: backendState.registers?.values || {},
-      memory: {},
-      description: description,
-    };
-
-    if (backendState.heap?.blocks) {
-      state.heapBlocks = backendState.heap.blocks.map(block => ({
-        address: block.address,
-        size: block.size,
-        isFree: !block.allocated,
-      }));
-    }
-
-    // Detect memory operations from instruction
-    const instr = instruction.toLowerCase();
-    if (instr.includes('lw') || instr.includes('sw') || instr.includes('lb') || instr.includes('sb')) {
-      const match = instr.match(/0x([0-9a-f]+)/i) || instr.match(/(\d+)\s*\(/);
-      if (match) {
-        const address = match[1].startsWith('0x') ? parseInt(match[1], 16) : parseInt(match[1]);
-        state.memoryAccess = {
-          type: (instr.includes('lw') || instr.includes('lb')) ? 'read' : 'write',
-          address: address || 0,
-          value: 0,
-        };
-      }
-    }
-
-    // Detect ALU operations
-    if (instr.includes('add') || instr.includes('sub') || instr.includes('mul') || instr.includes('div')) {
-      const registers = instr.match(/\$\w+/g);
-      if (registers && registers.length >= 2) {
-        const op = instr.includes('add') ? '+' : instr.includes('sub') ? '-' : instr.includes('mul') ? '×' : '÷';
-        const destReg = registers[0];
-        const srcReg1 = registers.length > 1 ? registers[1] : registers[0];
-        const srcReg2 = registers.length > 2 ? registers[2] : null;
-        
-        const reg1Val = state.registers[srcReg1] || 0;
-        const reg2Val = srcReg2 ? (state.registers[srcReg2] || 0) : 0;
-        const resultVal = state.registers[destReg] || 0;
-        
-        state.aluOperation = {
-          op,
-          operand1: reg1Val,
-          operand2: reg2Val,
-          result: resultVal,
-        };
-      }
-    }
-
-    return state;
-  }, []);
-
   const handleExecute = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     setExecutionStates([]);
 
     try {
+      console.log('[DEBUG] Executing code...');
       const response = await api.execute(code, 'step');
-      
+      console.log('[DEBUG] Raw API response:', response);
+
       if (!response.success || !response.state) {
         throw new Error(response.error || 'Execution failed');
       }
 
-      // The backend returns the FINAL state after execution
-      // MARS CLI doesn't provide step-by-step tracing
-      // So we just show the final state - no fake steps!
-      
-      // Handle both snake_case (from backend) and camelCase field names
       const backendState = response.state as any;
       const programOutput = backendState.programOutput || backendState.program_output || '';
       const instructionAnalysis = backendState.instructionAnalysis || backendState.instruction_analysis || null;
       
+      console.log('[DEBUG] Full response:', JSON.stringify(response, null, 2));
+      console.log('[DEBUG] Backend state keys:', Object.keys(backendState));
+      console.log('[DEBUG] instructionAnalysis value:', instructionAnalysis);
+      console.log('[DEBUG] Has instruction_analysis?', 'instruction_analysis' in backendState);
+      console.log('[DEBUG] Has instructionAnalysis?', 'instructionAnalysis' in backendState);
+
       const finalState: VisualExecutionState = {
         timestamp: Date.now(),
         instruction: 'Program Executed Successfully',
@@ -233,14 +158,13 @@ export default function VisualPage() {
         instructionAnalysis: instructionAnalysis,
       };
 
-      // Add heap data if available
       if (response.state.heap?.blocks) {
         finalState.heapBlocks = response.state.heap.blocks.map(block => ({
           address: block.address,
           size: block.size,
           isFree: !block.allocated,
         }));
-        
+
         setHeapData({
           blocks: response.state.heap.blocks.map(b => ({
             address: b.address,
@@ -252,9 +176,8 @@ export default function VisualPage() {
         });
       }
 
-      // Just show the single final state - no fake stepping!
       setExecutionStates([finalState]);
-      
+
     } catch (err) {
       const errorMsg = err instanceof ApiError ? err.message : 'Failed to execute code';
       setError(errorMsg);
@@ -275,35 +198,56 @@ export default function VisualPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950">
+    <div className="min-h-screen animated-bg relative">
+      {/* Animated Particles - Fixed for hydration */}
+      <div className="particles">
+        {[...Array(20)].map((_, i) => (
+          <div
+            key={i}
+            className="particle"
+            style={{
+              left: `${(i * 5.26) % 100}%`,
+              animationDelay: `${(i * 0.75) % 15}s`,
+              animationDuration: `${15 + (i * 0.5) % 10}s`,
+            }}
+          />
+        ))}
+      </div>
+
       {/* Header */}
-      <div className="bg-slate-900/80 backdrop-blur-sm border-b border-cyan-500/30 px-6 py-4 shadow-xl">
+      <motion.div
+        initial={{ y: -20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        className="glass sticky top-0 z-40 border-b border-violet-500/10 px-6 py-4 shadow-xl"
+      >
         <div className="flex items-center justify-between">
-          <button
+          <motion.button
+            whileHover={{ x: -4, scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
             onClick={() => router.push('/')}
-            className="flex items-center gap-2 text-cyan-300 hover:text-cyan-100 transition-all hover:translate-x-[-4px] duration-200 group"
+            className="flex items-center gap-2 text-violet-300 hover:text-violet-100 transition-all group"
           >
-            <ArrowLeft className="w-5 h-5 group-hover:animate-pulse" />
-            <span className="font-medium">Back to Classic View</span>
-          </button>
+            <ArrowLeft className="w-5 h-5 group-hover:transition-transform group-hover:-translate-x-1" />
+            <span className="font-semibold text-sm">Back to Classic View</span>
+          </motion.button>
 
           <div className="flex items-center gap-3">
             <motion.button
-              onClick={() => setShowEditor(!showEditor)}
-              className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-cyan-300 rounded-lg transition-all border border-cyan-500/30"
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
+              onClick={() => setShowEditor(!showEditor)}
+              className="flex items-center gap-2 px-4 py-2 glass hover:bg-white/5 text-violet-300 rounded-xl transition-all border border-violet-500/20 text-sm font-bold"
             >
               <Code2 className="w-4 h-4" />
               <span>{showEditor ? 'Hide' : 'Show'} Editor</span>
             </motion.button>
 
             <motion.button
+              whileHover={{ scale: 1.05, y: -2 }}
+              whileTap={{ scale: 0.95 }}
               onClick={handleExecute}
               disabled={isLoading}
-              className="flex items-center gap-2 px-5 py-2 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 hover:to-green-500 text-white rounded-lg font-semibold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
+              className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white rounded-xl font-bold shadow-lg shadow-violet-500/25 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm"
             >
               {isLoading ? (
                 <>
@@ -314,51 +258,41 @@ export default function VisualPage() {
                 <>
                   <Play className="w-4 h-4" />
                   <span>Execute & Visualize</span>
+                  <Zap className="w-3.5 h-3.5 ml-1 text-violet-200" />
                 </>
               )}
             </motion.button>
-
-            <motion.button
-              onClick={handleReset}
-              className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-orange-300 rounded-lg transition-all border border-orange-500/30"
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-            >
-              <RotateCcw className="w-4 h-4" />
-              <span>Reset</span>
-            </motion.button>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* Main Content */}
-      <div className="flex h-[calc(100vh-80px)]">
+      <div className="flex h-[calc(100vh-80px)] relative z-10 overflow-hidden">
         {/* Code Editor Panel */}
         <AnimatePresence>
           {showEditor && (
             <motion.div
-              className="w-1/2 border-r border-cyan-500/30 bg-slate-900/50 backdrop-blur-sm"
+              className="w-1/2 border-r border-violet-500/10 glass"
               initial={{ x: -400, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               exit={{ x: -400, opacity: 0 }}
-              transition={{ duration: 0.3 }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
             >
               <div className="h-full flex flex-col">
-                <div className="px-6 py-3 border-b border-cyan-500/30 bg-slate-800/50">
-                  <h2 className="text-lg font-semibold text-cyan-100 flex items-center gap-2">
-                    <Code2 className="w-5 h-5" />
+                <div className="px-6 py-5 border-b border-violet-500/10">
+                  <h2 className="text-md font-bold text-gray-200 flex items-center gap-2">
+                    <Code2 className="w-5 h-5 text-violet-400" />
                     MIPS Code Editor
                   </h2>
-                  <p className="text-sm text-cyan-300/70 mt-1">
-                    Write your MIPS assembly code here
-                  </p>
                 </div>
-                <div className="flex-1 p-4">
-                  <CodeEditor
-                    code={code}
-                    onChange={setCode}
-                    readOnly={isLoading}
-                  />
+                <div className="flex-1 p-5 overflow-hidden">
+                  <div className="h-full rounded-xl overflow-hidden border border-violet-500/10 shadow-inner">
+                    <CodeEditor
+                      code={code}
+                      onChange={setCode}
+                      readOnly={isLoading}
+                    />
+                  </div>
                 </div>
               </div>
             </motion.div>
@@ -366,18 +300,18 @@ export default function VisualPage() {
         </AnimatePresence>
 
         {/* Visualization Panel */}
-        <div className={`${showEditor ? 'w-1/2' : 'w-full'} overflow-auto transition-all duration-300`}>
+        <div className={`${showEditor ? 'w-1/2' : 'w-full'} overflow-auto transition-all duration-300 p-6`}>
           {error && (
             <motion.div
-              className="m-6 p-4 bg-red-900/30 border border-red-500 rounded-lg"
-              initial={{ opacity: 0, y: -20 }}
-              animate={{ opacity: 1, y: 0 }}
+              className="mb-8 p-5 bg-red-500/5 border border-red-500/20 rounded-xl backdrop-blur-sm"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
             >
-              <div className="flex items-start gap-3">
-                <span className="text-2xl">⚠️</span>
+              <div className="flex items-start gap-4">
+                <span className="text-xl">⚠️</span>
                 <div>
-                  <h3 className="text-red-300 font-semibold mb-1">Execution Error</h3>
-                  <p className="text-red-200 text-sm">{error}</p>
+                  <h3 className="text-red-400 font-bold mb-1">Execution Error</h3>
+                  <p className="text-red-200/70 text-sm leading-relaxed">{error}</p>
                 </div>
               </div>
             </motion.div>
@@ -385,29 +319,41 @@ export default function VisualPage() {
 
           {executionStates.length === 0 && !error && !isLoading && (
             <motion.div
-              className="flex items-center justify-center h-full"
+              className="flex flex-col items-center justify-center h-full text-center"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
             >
-              <div className="text-center">
-                <motion.div
-                  className="text-6xl mb-4"
-                  animate={{ scale: [1, 1.1, 1] }}
-                  transition={{ duration: 2, repeat: Infinity }}
-                >
-                  🚀
-                </motion.div>
-                <h2 className="text-2xl font-bold text-cyan-100 mb-2">
-                  Ready to Visualize!
-                </h2>
-                <p className="text-cyan-300/70 mb-6">
-                  Write your MIPS code and click "Execute & Visualize"
-                </p>
-                <div className="text-sm text-cyan-400/60 space-y-1">
-                  <p>💡 The Visual Lab will show:</p>
-                  <p>• Final register values after execution</p>
-                  <p>• Click registers to see hex/binary formats</p>
-                  <p>• Non-zero registers highlighted in green</p>
+              <motion.div
+                className="text-7xl mb-8"
+                animate={{
+                  y: [0, -15, 0],
+                  rotate: [0, 2, -2, 0],
+                }}
+                transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+              >
+                🚀
+              </motion.div>
+              <h2 className="text-3xl font-bold text-white mb-4">
+                Ready to Visualize!
+              </h2>
+              <p className="text-violet-300/60 mb-8 max-w-sm text-lg font-medium">
+                Write your MIPS assembly code and click the execute button to analyze it.
+              </p>
+
+              <div className="glass rounded-2xl p-6 text-left border border-violet-500/10 max-w-md w-full">
+                <div className="text-xs text-violet-300/80 space-y-4 font-bold uppercase tracking-wider">
+                  <p className="flex items-center gap-3">
+                    <span className="w-1.5 h-1.5 rounded-full bg-violet-400 shadow-[0_0_8px_rgba(167,139,250,0.5)]" />
+                    Detailed Register Analysis
+                  </p>
+                  <p className="flex items-center gap-3">
+                    <span className="w-1.5 h-1.5 rounded-full bg-violet-400 shadow-[0_0_8px_rgba(167,139,250,0.5)]" />
+                    Memory Segment Visualization
+                  </p>
+                  <p className="flex items-center gap-3">
+                    <span className="w-1.5 h-1.5 rounded-full bg-violet-400 shadow-[0_0_8px_rgba(167,139,250,0.5)]" />
+                    Heatmap of Static Code Analysis
+                  </p>
                 </div>
               </div>
             </motion.div>
@@ -417,8 +363,8 @@ export default function VisualPage() {
             <VisualTeachingLab
               executionStates={executionStates}
               heapData={heapData}
-              onAllocate={() => {}}
-              onFree={() => {}}
+              onAllocate={() => { }}
+              onFree={() => { }}
             />
           )}
         </div>
