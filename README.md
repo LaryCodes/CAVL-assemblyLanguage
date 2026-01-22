@@ -405,7 +405,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Contact
 
-- **Project Repository:** [github.com/yourusername/CAVL](https://github.com/yourusername/CAVL)
+- **Project Repository:** [github.com/larycodes/CAVL](https://github.com/larycodes/CAVL)
 - **Issues:** [email](mailto:larycodes@gmail.com)
 - **Documentation:** [docs/](docs/)
 
